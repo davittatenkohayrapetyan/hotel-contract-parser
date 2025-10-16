@@ -1,0 +1,14 @@
+FROM eclipse-temurin:17-jre-alpine
+
+WORKDIR /app
+
+# Copy the shaded JAR
+COPY cli/target/cli.jar /app/hotel-contract-parser.jar
+
+# Create directory for input/output files
+RUN mkdir -p /data
+
+WORKDIR /data
+
+ENTRYPOINT ["java", "-jar", "/app/hotel-contract-parser.jar"]
+CMD ["--help"]
