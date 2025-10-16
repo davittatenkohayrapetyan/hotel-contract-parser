@@ -20,7 +20,11 @@ public class PDFParser {
     private final PageExtractor pageExtractor;
 
     public PDFParser() {
-        this(new PageExtractor());
+        this(PageExtractorOptions.defaults());
+    }
+
+    public PDFParser(PageExtractorOptions options) {
+        this(new PageExtractor(options));
     }
 
     public PDFParser(PageExtractor pageExtractor) {
