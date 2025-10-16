@@ -64,6 +64,37 @@ class HotelContractParserCLITest {
     }
 
     @Test
+    void testInvalidDpiOption(@TempDir Path tempDir) throws IOException {
+        File testPdf = tempDir.resolve("test.pdf").toFile();
+        try (PDDocument doc = new PDDocument()) {
+            doc.addPage(new PDPage());
+            doc.save(testPdf);
+        }
+
+        HotelContractParserCLI cli = new HotelContractParserCLI();
+        CommandLine cmd = new CommandLine(cli);
+        int exitCode = cmd.execute(testPdf.getAbsolutePath(), "--dpi", "0");
+
+        assertEquals(1, exitCode);
+    }
+
+    @Test
+    void testInvalidTessDataDir(@TempDir Path tempDir) throws IOException {
+        File testPdf = tempDir.resolve("test.pdf").toFile();
+        try (PDDocument doc = new PDDocument()) {
+            doc.addPage(new PDPage());
+            doc.save(testPdf);
+        }
+
+        File missingDir = tempDir.resolve("missing").toFile();
+        HotelContractParserCLI cli = new HotelContractParserCLI();
+        CommandLine cmd = new CommandLine(cli);
+        int exitCode = cmd.execute(testPdf.getAbsolutePath(), "--tess-data-dir", missingDir.getAbsolutePath());
+
+        assertEquals(1, exitCode);
+    }
+
+    @Test
     void testHelpOption() {
         HotelContractParserCLI cli = new HotelContractParserCLI();
         CommandLine cmd = new CommandLine(cli);

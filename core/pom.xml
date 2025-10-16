@@ -35,6 +35,12 @@
             <artifactId>slf4j-api</artifactId>
         </dependency>
 
+        <!-- Tess4J -->
+        <dependency>
+            <groupId>net.sourceforge.tess4j</groupId>
+            <artifactId>tess4j</artifactId>
+        </dependency>
+
         <!-- JUnit Jupiter -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>

@@ -7,6 +7,7 @@ Java CLI to parse hotel-vendor contracts (PDF). Extracts basic metadata and page
 - Opens and parses PDF files using Apache PDFBox
 - Iterates through all pages and reports page count
 - Generates DOCX output using Apache POI
+- Falls back to OCR (Tess4J/Tesseract) when native text extraction is incomplete
 - Command-line interface using picocli
 - Dockerized for easy deployment
 - Java 17 compatible
@@ -34,6 +35,13 @@ Parse a PDF file and generate a DOCX report:
 
 ```bash
 java -jar cli/target/cli.jar <input.pdf> -o <output.docx>
+```
+
+Additional options:
+
+```bash
+--dpi <int>              # DPI used for OCR rasterization (default: 300)
+--tess-data-dir <dir>    # Directory containing Tesseract traineddata files
 ```
 
 Example:

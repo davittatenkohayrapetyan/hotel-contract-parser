@@ -1,6 +1,7 @@
 package com.hotel.cli;
 
 import com.hotel.parser.DocxWriter;
+import com.hotel.parser.PageExtractorOptions;
 import com.hotel.parser.PDFParser;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -34,6 +35,20 @@ public class HotelContractParserCLI implements Callable<Integer> {
     )
     private File outputFile;
 
+    @Option(
+        names = "--dpi",
+        description = "DPI used for rasterizing pages before OCR (default: ${DEFAULT-VALUE})",
+        defaultValue = "300"
+    )
+    private int ocrDpi = 300;
+
+    @Option(
+        names = "--tess-data-dir",
+        description = "Directory containing Tesseract traineddata files",
+        paramLabel = "DIR"
+    )
+    private File tessDataDir;
+
     @Override
     public Integer call() throws Exception {
         // Validate input file
@@ -50,10 +65,24 @@ public class HotelContractParserCLI implements Callable<Integer> {
             return 1;
         }
 
+        if (ocrDpi <= 0) {
+            System.err.println("Error: --dpi must be a positive integer");
+            return 1;
+        }
+        if (tessDataDir != null && !tessDataDir.isDirectory()) {
+            System.err.println("Error: --tess-data-dir must point to an existing directory");
+            return 1;
+        }
+
         System.out.println("Parsing PDF: " + inputFile.getAbsolutePath());
-        
+
         // Parse PDF
-        PDFParser parser = new PDFParser();
+        PageExtractorOptions options = new PageExtractorOptions(
+            ocrDpi,
+            tessDataDir == null ? null : tessDataDir.getAbsoluteFile(),
+            PageExtractorOptions.DEFAULT_MIN_NATIVE_TEXT_LENGTH
+        );
+        PDFParser parser = new PDFParser(options);
         PDFParser.ParseResult result = parser.parse(inputFile);
         
         // Print page count
