@@ -1,7 +1,5 @@
 package com.hotel.parser;
 
-import net.sourceforge.tess4j.Tesseract;
-import net.sourceforge.tess4j.TesseractException;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -9,10 +7,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.awt.image.BufferedImage;
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -23,7 +23,8 @@ public class PageExtractor {
     private static final String OCR_LANGUAGE = "eng";
 
     private final PageExtractorOptions options;
-    private Tesseract tesseract;
+    private Object tesseract; // Use Object instead of Tesseract to avoid class loading issues
+    private boolean tesseractAvailable = true; // Track if Tesseract is available
 
     public PageExtractor() {
         this(PageExtractorOptions.defaults());
@@ -96,37 +97,158 @@ public class PageExtractor {
     }
 
     private String performOcr(PDFRenderer renderer, int pageZeroBased, int pageNumber) {
+        if (!tesseractAvailable) {
+            logger.debug("Tesseract not available, skipping OCR for page {}", pageNumber);
+            return "";
+        }
+
+        BufferedImage image = null;
         try {
-            BufferedImage image = renderer.renderImageWithDPI(pageZeroBased, options.ocrDpi());
-            try {
-                String ocrText = getOrCreateTesseract().doOCR(image);
-                return ocrText == null ? "" : ocrText.trim();
-            } finally {
-                image.flush();
+            image = renderer.renderImageWithDPI(pageZeroBased, options.ocrDpi());
+
+            Object tesseractInstance = getOrCreateTesseract();
+            if (tesseractInstance == null) {
+                logger.debug("Tesseract instance not available for page {}", pageNumber);
+                return "";
             }
+
+            // Use reflection to call doOCR method
+            Class<?> tesseractClass = tesseractInstance.getClass();
+            Object result = tesseractClass.getMethod("doOCR", BufferedImage.class).invoke(tesseractInstance, image);
+            String ocrText = result != null ? result.toString() : "";
+            logger.debug("OCR completed for page {} with {} characters", pageNumber, ocrText.length());
+            return ocrText.trim();
+
         } catch (IOException e) {
             logger.warn("Failed to render page {} for OCR: {}", pageNumber, e.getMessage());
             logger.debug("Render failure details", e);
-        } catch (TesseractException e) {
-            logger.warn("Tesseract OCR failed on page {}: {}", pageNumber, e.getMessage());
-            logger.debug("Tesseract exception details", e);
-        } catch (UnsatisfiedLinkError e) {
-            logger.warn("Tesseract native libraries are unavailable; skipping OCR for page {}", pageNumber);
-            logger.debug("UnsatisfiedLinkError", e);
+        } catch (NoSuchMethodException e) {
+            logger.warn("Tesseract doOCR method not found - incompatible tess4j version");
+            tesseractAvailable = false; // Disable further OCR attempts
+        } catch (IllegalAccessException e) {
+            logger.warn("Cannot access Tesseract doOCR method");
+            tesseractAvailable = false;
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            if (cause != null) {
+                logger.warn("OCR processing failed on page {}: {} - {}", pageNumber, cause.getClass().getSimpleName(), cause.getMessage());
+            } else {
+                logger.warn("OCR processing failed on page {}: {}", pageNumber, e.getMessage());
+            }
+            logger.debug("OCR exception details", e);
+        } catch (Exception e) {
+            logger.warn("Unexpected error during OCR on page {}: {} - {}", pageNumber, e.getClass().getSimpleName(), e.getMessage());
+            logger.debug("OCR exception details", e);
+            tesseractAvailable = false; // Disable further OCR attempts after unexpected errors
+        } finally {
+            if (image != null) {
+                image.flush();
+            }
         }
         return "";
     }
 
-    private synchronized Tesseract getOrCreateTesseract() {
-        if (tesseract == null) {
-            Tesseract created = new Tesseract();
-            if (options.tessDataDir() != null) {
-                created.setDatapath(options.tessDataDir().getAbsolutePath());
+    private synchronized Object getOrCreateTesseract() {
+        if (tesseract == null && tesseractAvailable) {
+            try {
+                // Attempt to load Tesseract class
+                Class<?> tesseractClass = Class.forName("net.sourceforge.tess4j.Tesseract");
+                tesseract = tesseractClass.getDeclaredConstructor().newInstance();
+
+                // Test if TessAPI can be initialized by attempting to load it
+                try {
+                    Class.forName("net.sourceforge.tess4j.TessAPI");
+                    logger.debug("TessAPI class loaded successfully");
+                } catch (ClassNotFoundException | NoClassDefFoundError | UnsatisfiedLinkError e) {
+                    logger.warn("TessAPI native libraries not available; OCR will be unavailable: {}", e.getMessage());
+                    tesseractAvailable = false;
+                    tesseract = null;
+                    return null;
+                }
+
+                // Set Tesseract options using reflection
+                try {
+                    tesseractClass.getMethod("setLanguage", String.class).invoke(tesseract, OCR_LANGUAGE);
+                } catch (Exception e) {
+                    logger.debug("Failed to set Tesseract language: {}", e.getMessage());
+                }
+
+                File dataPath = options.tessDataDir();
+                if (dataPath == null) {
+                    dataPath = autodetectTessDataDir();
+                    if (dataPath != null) {
+                        logger.debug("Auto-detected tessdata directory at: {}", dataPath.getAbsolutePath());
+                    }
+                }
+                if (dataPath != null) {
+                    try {
+                        tesseractClass.getMethod("setDatapath", String.class).invoke(tesseract, dataPath.getAbsolutePath());
+                    } catch (Exception e) {
+                        logger.debug("Failed to set Tesseract data path: {}", e.getMessage());
+                    }
+                }
+
+                logger.debug("Tesseract initialized successfully");
+            } catch (ClassNotFoundException e) {
+                logger.warn("Tesseract class not found; OCR will be unavailable. Ensure tess4j is in classpath.");
+                tesseractAvailable = false;
+                tesseract = null;
+            } catch (NoClassDefFoundError | UnsatisfiedLinkError e) {
+                logger.warn("Tesseract native libraries not found; OCR will be unavailable. Ensure Tesseract is installed: {}", e.getMessage());
+                tesseractAvailable = false;
+                tesseract = null;
+            } catch (Exception e) {
+                logger.warn("Failed to initialize Tesseract: {} - {}", e.getClass().getSimpleName(), e.getMessage());
+                logger.debug("Tesseract initialization details", e);
+                tesseractAvailable = false;
+                tesseract = null;
             }
-            created.setLanguage(OCR_LANGUAGE);
-            tesseract = created;
         }
         return tesseract;
+    }
+
+    private File autodetectTessDataDir() {
+        // Highest priority: environment variables
+        String[] envKeys = new String[]{"TESSDATA_PREFIX", "TESSDATA_DIR"};
+        for (String key : envKeys) {
+            String val = System.getenv(key);
+            if (val != null && !val.isBlank()) {
+                File dir = new File(val);
+                if (dir.isDirectory()) return dir;
+                // Some set TESSDATA_PREFIX to parent of tessdata
+                File sub = new File(dir, "tessdata");
+                if (sub.isDirectory()) return sub;
+            }
+        }
+
+        // Try common Homebrew locations on macOS
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (os.contains("mac")) {
+            String[] candidates = new String[]{
+                "/opt/homebrew/opt/tesseract/share/tessdata",
+                "/opt/homebrew/share/tessdata",
+                "/usr/local/opt/tesseract/share/tessdata",
+                "/usr/local/share/tessdata"
+            };
+            for (String p : candidates) {
+                File dir = new File(p);
+                if (dir.isDirectory()) return dir;
+            }
+        }
+
+        // Debian/Ubuntu typical
+        String[] linuxCandidates = new String[]{
+            "/usr/share/tesseract-ocr/4.00/tessdata",
+            "/usr/share/tesseract-ocr/5/tessdata",
+            "/usr/share/tesseract-ocr/tessdata",
+            "/usr/share/tessdata"
+        };
+        for (String p : linuxCandidates) {
+            File dir = new File(p);
+            if (dir.isDirectory()) return dir;
+        }
+
+        return null;
     }
 
     /**

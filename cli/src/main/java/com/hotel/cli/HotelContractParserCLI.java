@@ -10,6 +10,7 @@ import picocli.CommandLine.Parameters;
 
 import java.io.File;
 import java.util.concurrent.Callable;
+import java.util.*;
 
 /**
  * CLI application for parsing hotel contract PDFs.
@@ -97,7 +98,45 @@ public class HotelContractParserCLI implements Callable<Integer> {
         return 0;
     }
 
+    private static void configureMacHomebrewNativeLibs() {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (!os.contains("mac")) return;
+
+        String key = "jna.library.path";
+        String existing = System.getProperty(key, "");
+
+        // Common Homebrew locations (Apple Silicon and Intel)
+        List<String> candidates = Arrays.asList(
+            "/opt/homebrew/opt/tesseract/lib",
+            "/opt/homebrew/opt/leptonica/lib",
+            "/opt/homebrew/lib",
+            "/usr/local/opt/tesseract/lib",
+            "/usr/local/opt/leptonica/lib",
+            "/usr/local/lib"
+        );
+
+        List<String> present = new ArrayList<>();
+        for (String p : candidates) {
+            if (new File(p).isDirectory()) {
+                present.add(p);
+            }
+        }
+        if (present.isEmpty()) return; // nothing to add
+
+        if (existing == null || existing.isBlank()) {
+            System.setProperty(key, String.join(File.pathSeparator, present));
+        } else {
+            // Append any missing ones
+            Set<String> parts = new LinkedHashSet<>(Arrays.asList(existing.split(java.util.regex.Pattern.quote(File.pathSeparator))));
+            parts.addAll(present);
+            System.setProperty(key, String.join(File.pathSeparator, parts));
+        }
+    }
+
     public static void main(String[] args) {
+        // Configure Homebrew Tesseract native libraries on macOS so Tess4J can load them
+        configureMacHomebrewNativeLibs();
+
         int exitCode = new CommandLine(new HotelContractParserCLI()).execute(args);
         System.exit(exitCode);
     }
